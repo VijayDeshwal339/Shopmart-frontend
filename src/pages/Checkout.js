@@ -1,34 +1,24 @@
 import { Link } from 'react-router-dom';
+import { useSelector, useDispatch } from 'react-redux';
+import {
+  deleteItemFromCartAsync,
+  selectItems,
+  updateCartAsync,
+} from '../features/cart/cartSlice';
+import { Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { updateUserAsync } from '../features/user/userSlice';
 import { useState } from 'react';
-
-const products = [
-  {
-    id: 1,
-    name: 'Throwback Hip Bag',
-    href: '#',
-    color: 'Salmon',
-    price: '$90.00',
-    quantity: 1,
-    imageSrc: 'https://tailwindui.com/img/ecommerce-images/shopping-cart-page-04-product-01.jpg',
-    imageAlt: 'Salmon orange fabric pouch with match zipper, gray zipper pull, and adjustable hip belt.',
-  },
-  {
-    id: 2,
-    name: 'Medium Stuff Satchel',
-    href: '#',
-    color: 'Blue',
-    price: '$32.00',
-    quantity: 1,
-    imageSrc: 'https://tailwindui.com/img/ecommerce-images/shopping-cart-page-04-product-02.jpg',
-    imageAlt:
-      'Front of satchel with blue canvas body, black straps and handle, drawstring top, and front zipper pouch.',
-  },
-  // More products...
-]
+import {
+  createOrderAsync,
+  selectCurrentOrder,
+  selectStatus,
+} from '../features/order/orderSlice';
+import { selectUserInfo } from '../features/user/userSlice';
+import { Grid } from 'react-loader-spinner';
 
 function Checkout() {
-  
+  const dispatch = useDispatch();
   const {
     register,
     handleSubmit,
@@ -36,16 +26,31 @@ function Checkout() {
     formState: { errors },
   } = useForm();
 
+  const user = useSelector(selectUserInfo);
+  const items = useSelector(selectItems);
+  const status = useSelector(selectStatus);
+  const currentOrder = useSelector(selectCurrentOrder);
+
+  const totalAmount = items.reduce(
+    (amount, item) => item.product.discountPrice * item.quantity + amount,
+    0
+  );
+  const totalItems = items.reduce((total, item) => item.quantity + total, 0);
 
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
 
+  const handleQuantity = (e, item) => {
+    dispatch(updateCartAsync({ id: item.id, quantity: +e.target.value }));
+  };
 
-  
+  const handleRemove = (e, id) => {
+    dispatch(deleteItemFromCartAsync(id));
+  };
 
   const handleAddress = (e) => {
     console.log(e.target.value);
-    setSelectedAddress(e.target.value);
+    setSelectedAddress(user.addresses[e.target.value]);
   };
 
   const handlePayment = (e) => {
@@ -53,12 +58,50 @@ function Checkout() {
     setPaymentMethod(e.target.value);
   };
 
-  
+  const handleOrder = (e) => {
+    if (selectedAddress && paymentMethod) {
+      const order = {
+        items,
+        totalAmount,
+        totalItems,
+        user: user.id,
+        paymentMethod,
+        selectedAddress,
+        status: 'pending', // other status can be delivered, received.
+      };
+      dispatch(createOrderAsync(order));
+      // need to redirect from here to a new page of order success.
+    } else {
+      
+      alert('Enter Address and Payment method');
+    }
+  };
 
   return (
     <>
-      
-     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {!items.length && <Navigate to="/" replace={true}></Navigate>}
+      {currentOrder && currentOrder.paymentMethod === 'cash' && (
+        <Navigate
+          to={`/order-success/${currentOrder.id}`}
+          replace={true}
+        ></Navigate>
+      )}
+      {currentOrder && currentOrder.paymentMethod === 'card' && (
+        <Navigate to={`/stripe-checkout/`} replace={true}></Navigate>
+      )}
+
+      {status === 'loading' ? (
+        <Grid
+          height="80"
+          width="80"
+          color="rgb(79, 70, 229) "
+          ariaLabel="grid-loading"
+          radius="12.5"
+          wrapperStyle={{}}
+          wrapperClass=""
+          visible={true}
+        />
+      ) : <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-x-8 gap-y-10 lg:grid-cols-5">
           <div className="lg:col-span-3">
             {/* This form is for address */}
@@ -67,6 +110,12 @@ function Checkout() {
               noValidate
               onSubmit={handleSubmit((data) => {
                 console.log(data);
+                dispatch(
+                  updateUserAsync({
+                    ...user,
+                    addresses: [...user.addresses, data],
+                  })
+                );
                 reset();
               })}
             >
@@ -267,7 +316,7 @@ function Checkout() {
                 Choose from Existing addresses
               </p>
               <ul>
-                {selectedAddress && selectedAddress.map((address, index) => (
+                {user.addresses.map((address, index) => (
                   <li
                     key={index}
                     className="flex justify-between gap-x-6 px-5 py-5 border-solid border-2 border-gray-200"
@@ -360,12 +409,12 @@ function Checkout() {
                 </h1>
                 <div className="flow-root">
                   <ul role="list" className="-my-6 divide-y divide-gray-200">
-                    {products.map((item) => (
+                    {items.map((item) => (
                       <li key={item.id} className="flex py-6">
                         <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-gray-200">
                           <img
-                            src={item.imageAlt}
-                            alt={item.name}
+                            src={item.product.thumbnail}
+                            alt={item.product.title}
                             className="h-full w-full object-cover object-center"
                           />
                         </div>
@@ -374,16 +423,16 @@ function Checkout() {
                           <div>
                             <div className="flex justify-between text-base font-medium text-gray-900">
                               <h3>
-                                <a href={item.id}>
-                                  {item.title}
+                                <a href={item.product.id}>
+                                  {item.product.title}
                                 </a>
                               </h3>
                               <p className="ml-4">
-                                ${item.price}
+                                ${item.product.discountPrice}
                               </p>
                             </div>
                             <p className="mt-1 text-sm text-gray-500">
-                              {item.color}
+                              {item.product.brand}
                             </p>
                           </div>
                           <div className="flex flex-1 items-end justify-between text-sm">
@@ -395,7 +444,7 @@ function Checkout() {
                                 Qty
                               </label>
                               <select
-                                // onChange={(e) => handleQuantity(e, item)}
+                                onChange={(e) => handleQuantity(e, item)}
                                 value={item.quantity}
                               >
                                 <option value="1">1</option>
@@ -408,7 +457,7 @@ function Checkout() {
 
                             <div className="flex">
                               <button
-                                // onClick={(e) => handleRemove(e, item.id)}
+                                onClick={(e) => handleRemove(e, item.id)}
                                 type="button"
                                 className="font-medium text-indigo-600 hover:text-indigo-500"
                               >
@@ -426,18 +475,18 @@ function Checkout() {
               <div className="border-t border-gray-200 px-2 py-6 sm:px-2">
                 <div className="flex justify-between my-2 text-base font-medium text-gray-900">
                   <p>Subtotal</p>
-                  <p>$200</p>
+                  <p>$ {totalAmount}</p>
                 </div>
                 <div className="flex justify-between my-2 text-base font-medium text-gray-900">
                   <p>Total Items in Cart</p>
-                  <p>4 items</p>
+                  <p>{totalItems} items</p>
                 </div>
                 <p className="mt-0.5 text-sm text-gray-500">
                   Shipping and taxes calculated at checkout.
                 </p>
                 <div className="mt-6">
                   <div
-                    // onClick={handleOrder}
+                    onClick={handleOrder}
                     className="flex cursor-pointer items-center justify-center rounded-md border border-transparent bg-indigo-600 px-6 py-3 text-base font-medium text-white shadow-sm hover:bg-indigo-700"
                   >
                     Order Now
@@ -461,7 +510,7 @@ function Checkout() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </>
   );
 }
